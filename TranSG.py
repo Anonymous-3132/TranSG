@@ -35,7 +35,7 @@ tf.app.flags.DEFINE_string('probe', 'probe',
 						   "for testing probe")  # "probe" (for KGBD/KS20), "A", "B" (for IAS), "Walking", "Still" (for BIWI)
 tf.app.flags.DEFINE_string('gpu', '0', "GPU number")
 tf.app.flags.DEFINE_string('probe_type', '', "probe.gallery")  # probe and gallery setting for CASIA-B
-tf.app.flags.DEFINE_string('patience', '100', "epochs for early stopping")
+tf.app.flags.DEFINE_string('patience', '120', "epochs for early stopping")
 tf.app.flags.DEFINE_string('mode', 'Train', "Training (Train) or Evaluation (Eval)")
 tf.app.flags.DEFINE_string('save_flag', '0',
 						   "")  # save model metrics (top-1, top-5. top-10, mAP, GPC loss, STPR loss, mACT, mRCL)
@@ -50,6 +50,8 @@ tf.app.flags.DEFINE_string('seq_lambda', '0.5', "")  # alpha for fusing sequence
 tf.app.flags.DEFINE_string('prompt_lambda', '0.5',
 						   "")  # beta for fusing structure prompted and trajectory prompted reconstruction
 tf.app.flags.DEFINE_string('GPC_lambda', '0.5', "")  # lambda for fusing GPC and STPR
+tf.app.flags.DEFINE_string('t_1', '0.07', "")  # global temperatures t1
+tf.app.flags.DEFINE_string('t_2', '0.7', "")  # global temperatures t2
 tf.app.flags.DEFINE_string('pos_enc', '1', "")  # positional encoding or not
 tf.app.flags.DEFINE_string('enc_k', '10', "")  # first K eigenvectors for positional encoding
 tf.app.flags.DEFINE_string('rand_flip', '1', "")  # random flipping strategy
@@ -87,11 +89,11 @@ dataset = FLAGS.dataset
 if dataset == 'KGBD':
 	FLAGS.lr = '0.00035'
 	FLAGS.rand_flip = '0'
-	FLAGS.patience = '50'
+	FLAGS.patience = '60'
 elif dataset == 'CASIA_B':
 	FLAGS.lr = '0.00035'
 	FLAGS.rand_flip = '0'
-	FLAGS.patience = '50'
+	FLAGS.patience = '60'
 else:
 	FLAGS.lr = '0.00035'
 
@@ -114,7 +116,7 @@ if FLAGS.probe_type != '':
 	change += '_CME'
 
 change += '_f_' + FLAGS.length + '_layers_' + FLAGS.L_transformer + '_heads_' + FLAGS.n_heads + '_recon_' + FLAGS.GPC_lambda + \
-		  '_prompt_' + FLAGS.prompt_lambda + '_seq_lambda_' + FLAGS.seq_lambda
+		  '_prompt_' + FLAGS.prompt_lambda + '_seq_lambda_' + FLAGS.seq_lambda + '_t1_' + FLAGS.t_1 + '_t2_' + FLAGS.t_2
 
 try:
 	os.mkdir(pre_dir)
@@ -141,7 +143,8 @@ print('beta: ' + FLAGS.prompt_lambda)
 print('lambda: ' + FLAGS.GPC_lambda)
 print('a (structure): ' + FLAGS.St_mask_num)
 print('b (trajectory): ' + FLAGS.Tr_mask_num)
-print('lambda: ' + FLAGS.GPC_lambda)
+print('t1: ' + FLAGS.t_1)
+print('t2: ' + FLAGS.t_2)
 
 print('batch_size: ' + str(batch_size))
 print('lr: ' + str(FLAGS.lr))
@@ -333,7 +336,7 @@ if FLAGS.mode == 'Train':
 					f_2 = tf.Variable(initial_value=W_head)
 					all_ftr_trans = tf.matmul(all_ftr, f_1)
 					cluster_ftr_trans = tf.matmul(cluster_ftr, f_2)
-					logits = tf.matmul(all_ftr_trans, tf.transpose(cluster_ftr_trans)) / np.sqrt(H)
+					logits = tf.matmul(all_ftr_trans, tf.transpose(cluster_ftr_trans)) / t
 					label_frames = tf.reshape(tf.tile(tf.reshape(labels, [-1, 1]), [1, time_step]), [-1])
 					label_frames = tf.reshape(label_frames, [batch_size, time_step])
 					loss = tf.reduce_mean(tf.reduce_sum(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=label_frames,
@@ -376,11 +379,11 @@ if FLAGS.mode == 'Train':
 					seq_recon_loss_1 = tf.losses.mean_squared_error(pred_seq1, T_gt_pos) / batch_size
 				seq_recon_loss = seq_recon_loss_1
 
-			def GPC_seq(pseudo_lab, all_ftr, cluster_ftr):
+			def GPC_seq(t, pseudo_lab, all_ftr, cluster_ftr):
 				all_ftr = tf.nn.l2_normalize(all_ftr, axis=-1)
 				cluster_ftr = tf.nn.l2_normalize(cluster_ftr, axis=-1)
 				output = tf.matmul(all_ftr, tf.transpose(cluster_ftr))
-				output /= float(np.sqrt(H))
+				output /= t
 				loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=pseudo_lab, logits=output))
 				return loss
 
@@ -390,8 +393,8 @@ if FLAGS.mode == 'Train':
 			else:
 				recon_loss = G_recon_loss
 
-			GPC_seq_loss = GPC_seq(gt_lab, seq_ftr, gt_class_ftr)
-			GPC_ske_loss = GPC_ske(np.sqrt(H), gt_lab, C_seq, gt_class_ftr)
+			GPC_seq_loss = GPC_seq(float(FLAGS.t_1), gt_lab, seq_ftr, gt_class_ftr)
+			GPC_ske_loss = GPC_ske(float(FLAGS.t_2), gt_lab, C_seq, gt_class_ftr)
 			H_loss = (1 - float(FLAGS.seq_lambda)) * GPC_ske_loss + float(FLAGS.seq_lambda) * GPC_seq_loss
 
 			train_op = optimizer.minimize(float(FLAGS.GPC_lambda) * H_loss + (1 - float(FLAGS.GPC_lambda)) * recon_loss)
@@ -940,7 +943,7 @@ if FLAGS.mode == 'Train':
 						sign_flip[sign_flip < 0.5] = -1.0
 						pos_enc_ori_rand = pos_enc_ori * sign_flip
 						if FLAGS.save_flag == '0':
-							_, recon_loss_, hard_loss_, Seq_features = sess.run(
+							_, STPR_loss_, GPC_loss_, Seq_features = sess.run(
 								[train_op, recon_loss, H_loss, seq_ftr],
 								feed_dict={
 									J_in: X_input_J,
@@ -952,7 +955,7 @@ if FLAGS.mode == 'Train':
 									train_flag: True
 								})
 						else:
-							_, recon_loss_, hard_loss_, uni_loss, Seq_features = sess.run(
+							_, STPR_loss_, GPC_loss_, uni_loss, Seq_features = sess.run(
 								[train_op, recon_loss, H_loss, loss_uniform, seq_ftr],
 								feed_dict={
 									J_in: X_input_J,
@@ -965,7 +968,7 @@ if FLAGS.mode == 'Train':
 								})
 					elif FLAGS.rand_flip == '0':
 						if FLAGS.save_flag == '0':
-							_, recon_loss_, hard_loss_, Seq_features = sess.run(
+							_, STPR_loss_, GPC_loss_, Seq_features = sess.run(
 								[train_op, recon_loss, H_loss, seq_ftr],
 								feed_dict={
 									J_in: X_input_J,
@@ -977,7 +980,7 @@ if FLAGS.mode == 'Train':
 									train_flag: True
 								})
 						else:
-							_, recon_loss_, hard_loss_, uni_loss, Seq_features = sess.run(
+							_, STPR_loss_, GPC_loss_, uni_loss, Seq_features = sess.run(
 								[train_op, recon_loss, H_loss, loss_uniform, seq_ftr],
 								feed_dict={
 									J_in: X_input_J,
@@ -988,15 +991,15 @@ if FLAGS.mode == 'Train':
 									gt_class_ftr: gt_class_features,
 									train_flag: True
 								})
-					batch_h_loss.append(hard_loss_)
-					batch_recon_loss.append(recon_loss_)
+					batch_h_loss.append(GPC_loss_)
+					batch_recon_loss.append(STPR_loss_)
 					if FLAGS.save_flag == '1':
 						batch_uni_loss.append(uni_loss)
 
 					if tr_step % display == 0:
 						print(
-							'[%s] Batch num: %d | Recon. Loss: %.5f | H Loss: %.5f |' %
-							(str(epoch), tr_step, recon_loss_, hard_loss_))
+							'[%s] Batch num: %d | STPR Loss: %.5f | GPC Loss: %.5f |' %
+							(str(epoch), tr_step, STPR_loss_, GPC_loss_))
 					tr_step += 1
 
 				h_losses.append(np.mean(batch_h_loss))
@@ -1336,7 +1339,8 @@ print('beta: ' + FLAGS.prompt_lambda)
 print('lambda: ' + FLAGS.GPC_lambda)
 print('a (structure): ' + FLAGS.St_mask_num)
 print('b (trajectory): ' + FLAGS.Tr_mask_num)
-print('lambda: ' + FLAGS.GPC_lambda)
+print('t1: ' + FLAGS.t_1)
+print('t2: ' + FLAGS.t_2)
 
 print('batch_size: ' + str(batch_size))
 print('lr: ' + str(FLAGS.lr))
