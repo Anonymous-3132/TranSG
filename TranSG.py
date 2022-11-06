@@ -115,8 +115,8 @@ change = ''
 if FLAGS.probe_type != '':
 	change += '_CME'
 
-change += '_f_' + FLAGS.length + '_layers_' + FLAGS.L_transformer + '_heads_' + FLAGS.n_heads + '_recon_' + FLAGS.GPC_lambda + \
-		  '_prompt_' + FLAGS.prompt_lambda + '_seq_lambda_' + FLAGS.seq_lambda + '_t1_' + FLAGS.t_1 + '_t2_' + FLAGS.t_2
+change += '_f_' + FLAGS.length + '_layers_' + FLAGS.L_transformer + '_heads_' + FLAGS.n_heads + '_lambda_' + FLAGS.GPC_lambda + \
+		  '_beta_' + FLAGS.prompt_lambda + '_alpha_' + FLAGS.seq_lambda + '_t1_' + FLAGS.t_1 + '_t2_' + FLAGS.t_2
 
 try:
 	os.mkdir(pre_dir)
