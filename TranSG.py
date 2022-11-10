@@ -51,7 +51,7 @@ tf.app.flags.DEFINE_string('prompt_lambda', '0.5',
 						   "")  # beta for fusing structure prompted and trajectory prompted reconstruction
 tf.app.flags.DEFINE_string('GPC_lambda', '0.5', "")  # lambda for fusing GPC and STPR
 tf.app.flags.DEFINE_string('t_1', '0.07', "")  # global temperatures t1
-tf.app.flags.DEFINE_string('t_2', '0.7', "")  # global temperatures t2
+tf.app.flags.DEFINE_string('t_2', '14', "")  # global temperatures t2
 tf.app.flags.DEFINE_string('pos_enc', '1', "")  # positional encoding or not
 tf.app.flags.DEFINE_string('enc_k', '10', "")  # first K eigenvectors for positional encoding
 tf.app.flags.DEFINE_string('rand_flip', '1', "")  # random flipping strategy
@@ -90,6 +90,7 @@ if dataset == 'KGBD':
 	FLAGS.lr = '0.00035'
 	FLAGS.rand_flip = '0'
 	FLAGS.patience = '60'
+	# FLAGS.t_2 = '20'
 elif dataset == 'CASIA_B':
 	FLAGS.lr = '0.00035'
 	FLAGS.rand_flip = '0'
@@ -115,8 +116,8 @@ change = ''
 if FLAGS.probe_type != '':
 	change += '_CME'
 
-change += '_f_' + FLAGS.length + '_layers_' + FLAGS.L_transformer + '_heads_' + FLAGS.n_heads + '_lambda_' + FLAGS.GPC_lambda + \
-		  '_beta_' + FLAGS.prompt_lambda + '_alpha_' + FLAGS.seq_lambda + '_t1_' + FLAGS.t_1 + '_t2_' + FLAGS.t_2
+change += '_f_' + FLAGS.length + '_layers_' + FLAGS.L_transformer + '_heads_' + FLAGS.n_heads + \
+		  '_alpha_' + FLAGS.seq_lambda + '_beta_' + FLAGS.prompt_lambda  + '_lambda_' + FLAGS.GPC_lambda
 
 try:
 	os.mkdir(pre_dir)
